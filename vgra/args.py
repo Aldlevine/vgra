@@ -33,3 +33,4 @@ class Arg(Generic[TArg]):
 class ArgDef(Generic[TArg]):
     default: TArg
     doc: str
+    kw_only: bool

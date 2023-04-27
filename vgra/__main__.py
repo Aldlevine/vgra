@@ -1,77 +1,71 @@
-import sys
 from typing import Any
+from .lib.value_parsers import DEFAULT_PARSERS
+from .parser import PythonicArgParser
+from .cli import StaticCli, arg, cli, Cli
 
-from .cli import Cli, StaticCli, arg, cli
-from .parser import StandardArgParser
-from .std.value_parsers import DEFAULT_PARSERS
+# DEFINE
 
-
-@cli
-def my_fn(
-    command: str = arg(doc="The command to run"),
-    /,
-    x: int = arg(default=1, doc="x ** 2"),
-    y: int = arg(default=2, doc="** y"),
-    *,
-    arg3: str = arg(default="Damn", doc="Don't do it"),
-    arg4: dict[str, int] = arg(default={"one": 1}, doc="Something"),
-) -> int:
-    """This is my documentation!"""
-    print(f"running command {repr(command)} with x={x}, y={y}, arg3={arg3}, arg4={arg4}")
-    x = (x * x) ** y
-    return x
+parser = PythonicArgParser(DEFAULT_PARSERS)
 
 
-@cli
-class MyData(StaticCli):
-    x: int = arg(doc="The 'X' argument")
-    y: int = arg(default=2, doc="The 'Y' argument")
-    z: dict[str, int] = arg(default={"a": 1}, doc="The 'Z' argument")
+@cli(argparser=parser)
+class Global(StaticCli):
+    """The command doc"""
+
+    command: str = arg(default="", doc="The command to run [cmd1, cmd2]")
+    help: bool = arg(default=False, kw_only=True)
 
 
-def exec(clifn: Cli[[Any], Any] | type[StaticCli]):
-    argparser = StandardArgParser(
-        clifn.args, DEFAULT_PARSERS
-    )
-    (argvd, kwargvd), _xs = argparser.parse(sys.argv[1:])
-    args = tuple(v for _, v in argvd)
-    kwargs = {k: v for k, (_, v) in kwargvd.items()}
+@cli(argparser=parser)
+def cmd1(
+    x: int = arg(doc="The X var"),
+    y: int = arg(doc="The Y var"),
+) -> None:
+    """Command 1"""
 
-    try:
-        print(clifn(*args, **kwargs))
-    except Exception as e:
-        print()
-        clifn.print_signature()
-        print()
-        print(e)
-        print()
-
-exec(my_fn)
-
-# pprint.pp([(v, a is not None) for a, v in args])
-# pprint.pp({k: (v, a is not None) for k, (a, v) in kwargs.items()})
-# print(argparser.parse(["hello", "world", "neat", "wow!", "--arg3", "fucking cool"])[0])
+    print(f"CMD1: we got x={x} y={y}")
 
 
-# @cli
-# def var_fn(
-#     *args: int,
-#     **kwargs: int,
-# ) -> None:
-#     ...
+@cli(argparser=parser)
+def cmd2(
+    u: str = arg(doc="The U var"),
+    v: str = arg(doc="The V var"),
+) -> None:
+    """Command 2"""
+
+    print(f"CMD2: we got u={u} v={v}")
 
 
-# print("\nFN:\n")
-# my_fn.print_signature()
+# map of name:command
+cmds: dict[str, Cli[Any, Any]] = {
+    "cmd1": cmd1,
+    "cmd2": cmd2,
+}
 
-# print("\nDATA:\n")
-# MyData.print_signature()
+# RUN
 
-# print("\nVAR FN\n")
-# var_fn.print_signature()
+g, argv = Global.exec()
 
-# print()
+cmd = cmds.get(g.command, Global)
 
+if g.help:
+    cmd.print_help()
+elif isinstance(cmd, Global):
+    Global.print_error(Exception(f"invalid command '{g.command}'"))
+else:
+    cmd.exec(argv)
+# for cmd_str, cmd in cmds.items():
+#     if cmd_str != g.command:
+#         continue
+#     if g.help:
+#         cmd.print_help()
+#         exit()
+#     _, argv = cmd.exec(argv)
+#     exit()
 
-# def fart(x: int, y: int, z: int) -> None:
-#     ...
+# if g.help:
+#     Global.print_help()
+# elif g.command == "":
+#     Global.print_error(Exception(f"command not specified"))
+# else:
+#     Global.print_error(Exception(f"invalid command '{g.command}'"))
