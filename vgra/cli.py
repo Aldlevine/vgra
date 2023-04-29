@@ -1,7 +1,8 @@
 import inspect
 import sys
-from dataclasses import MISSING, dataclass, fields, is_dataclass
-from types import EllipsisType
+from dataclasses import KW_ONLY
+from dataclasses import MISSING as DC_MISSING
+from dataclasses import dataclass, fields, is_dataclass
 from typing import (
     Any,
     Callable,
@@ -15,36 +16,47 @@ from typing import (
     overload,
 )
 
-from .args import EMPTY, Arg, ArgDef, ArgKind, TArg
-from .lib.arg_parsers import StandardArgParser
-from .lib.value_parsers import DEFAULT_PARSERS
-from .parser import ArgParser, ParseResult_t
+from .args import EMPTY, MISSING, Arg, ArgDef, ArgKind, arg
+from .std.arg_parsers.pythonic_arg_parser import PythonicArgParser
+from .parser import ArgParser, ParseError, ParseResult_t
 
 PArgs = ParamSpec("PArgs")
 TRet = TypeVar("TRet", covariant=True)
 
 
-def _parse_signature(fn: Callable[PArgs, Any]) -> list[Arg[Any]]:
+def _parse_signature(fn: Callable[PArgs, Any], required: bool) -> list[Arg[Any]]:
     args: list[Arg[Any]] = []
     sig = inspect.signature(fn)
+    kw_only_seen: bool = False
     for _k, param in sig.parameters.items():
         arg = param.default
+        if param.annotation == KW_ONLY:
+            kw_only_seen = True
         if arg is EMPTY:
-            arg = ArgDef(..., "", False)
-        # assert isinstance(arg, ArgDef)
+            arg = ArgDef(MISSING, [], "", False, True, None)
         if not isinstance(arg, ArgDef):
             continue
+        names = arg.names
+        if names is MISSING:
+            names = [param.name]
         args.append(
             Arg(
-                ArgKind(ArgKind.KW if arg.kw_only else param.kind),
+                ArgKind(ArgKind.KW if kw_only_seen or arg.kw_only else param.kind),
                 param.name,
+                cast(list[str], names),
                 param.annotation,
                 arg.default,
                 arg.doc,
+                arg.required and required,
+                arg.choices
             )
         )
     return args
 
+def _format_type(arg: Arg[Any]) -> str:
+    if arg.choices:
+        return ", ".join([str(c) for c in arg.choices])
+    return inspect.formatannotation(arg.type)
 
 def _print_signature(args: list[Arg[Any]], /) -> None:
     label_name: str = "arg"
@@ -58,12 +70,15 @@ def _print_signature(args: list[Arg[Any]], /) -> None:
     max_doc: int = len(label_doc)
 
     for arg in args:
-        max_name = max(max_name, len(arg.name))
+        max_name = max(max_name, len(", ".join(arg.names)))
         max_t = max(
-            max_t, len("" if arg.type == ... else inspect.formatannotation(arg.type))
+            max_t,
+            # len(inspect.formatannotation(arg.type)),
+            len(_format_type(arg))
         )
         max_default = max(
-            max_default, len("" if arg.default == ... else repr(arg.default))
+            max_default,
+            len("" if arg.default in (MISSING, Ellipsis) else repr(arg.default)),
         )
         max_doc = max(max_doc, len(arg.doc))
 
@@ -74,15 +89,14 @@ def _print_signature(args: list[Arg[Any]], /) -> None:
 
     print(f"{label_name}{label_t}{label_default}{label_doc}")
     for arg in args:
-        default = "" if arg.default == ... else repr(arg.default)
+        default = "" if arg.default == MISSING else repr(arg.default)
 
-        name = arg.name.ljust(max_name + 2)
-        t = ("" if arg.type == ... else inspect.formatannotation(arg.type)).ljust(
-            max_t + 2
-        )
-        default = ("" if arg.default == ... else repr(arg.default)).ljust(
-            max_default + 2
-        )
+        name = ", ".join(arg.names).ljust(max_name + 2)
+        # t = (inspect.formatannotation(arg.type)).ljust(max_t + 2)
+        t = (_format_type(arg)).ljust(max_t + 2)
+        default = (
+            "" if arg.default in (MISSING, Ellipsis) else str(arg.default)
+        ).ljust(max_default + 2)
 
         print(f"{name}{t}{default}{arg.doc}")
 
@@ -95,8 +109,8 @@ def _clean_fn(fn: Callable[PArgs, Any]) -> None:
         fn.__init__.__defaults__ = tuple()  # type: ignore[misc, only called on classes from decorator, so we know we have correct __init__]
         fn.__init__.__kwdefaults__ = {}  # type: ignore[misc, only called on classes from decorator, so we know we have correct __init__]
         for f in fields(fn):
-            f.default = MISSING
-            f.default_factory = MISSING
+            f.default = DC_MISSING
+            f.default_factory = DC_MISSING
             fn.__dataclass_fields__[f.name] = f
 
 
@@ -111,37 +125,43 @@ def _call_cli(
     combined_kwargs: dict[str, Any] = {k: v for k, v in kwargs.items()}
     for i in range(len(args), len(dargs)):
         arg = dargs[i]
-        if arg.kind == ArgKind.POS and arg.default is not Ellipsis:
+        needs_default = arg.default is not MISSING or not arg.required
+        if arg.kind == ArgKind.POS and needs_default:
             combined_args.append(arg.default)
             continue
-        if arg.name not in combined_kwargs and arg.default is not Ellipsis:
+        if arg.name not in combined_kwargs and needs_default:
             combined_kwargs[arg.name] = arg.default
     return fn(*combined_args, **combined_kwargs)  # type: ignore[missing, I dont know how to fix this, ParamSpec is too limited]
 
 
-def arg(
-    *, default: TArg | EllipsisType = Ellipsis, doc: str = "", kw_only: bool = False
-) -> TArg:
-    return cast(TArg, ArgDef(default, doc, kw_only))
-
-
-class StaticCli:
+class DataCli:
     args: ClassVar[list[Arg[Any]]]
+    cli: ClassVar["Cli[Any, Any]"]
 
     @classmethod
     def print_signature(cls) -> None:
+        cls.cli.print_signature()
         ...
 
     @classmethod
     def print_help(cls) -> None:
-        ...
+        cls.cli.print_help()
+        # ...
 
     @classmethod
     def print_error(cls, e: Exception) -> None:
+        cls.cli.print_error(e)
         ...
 
     @classmethod
+    def check_missing(cls, **kwargs: Any) -> bool:
+        return cls.cli.check_missing(**kwargs)
+
+    @classmethod
     def exec(cls, argv: list[str] = sys.argv[1:]) -> ParseResult_t[Self]:  # type: ignore
+        ...
+
+    def next(self, argv: list[str]) -> None:
         ...
 
 
@@ -150,13 +170,16 @@ class Cli(Generic[PArgs, TRet]):
         self,
         fn: Callable[PArgs, TRet],
         /,
+        required: bool,
         argparser: ArgParser,
     ) -> None:
         super().__init__()
         self._fn = fn
-        self._args: list[Arg[Any]] = _parse_signature(fn)
+        self._args: list[Arg[Any]] = _parse_signature(fn, required)
         self._argparser = argparser
         _clean_fn(fn)
+        if hasattr(fn, "cli"):
+            setattr(fn, "cli", self)
 
     @property
     def args(self) -> list[Arg[Any]]:
@@ -179,10 +202,22 @@ class Cli(Generic[PArgs, TRet]):
         print(e)
         print()
 
-    def exec(self, argv: list[str] = sys.argv[1:], **bind_kwargs: Any) -> ParseResult_t[TRet]:
+    def check_missing(self, **kwargs: Any) -> bool:
+        missing: list[str] = []
+        for k,v in kwargs.items():
+            if v == MISSING:
+                missing += [k]
+        if len(missing) > 0:
+            self.print_error(Exception(f"Missing require arguments {', '.join(missing)}"))
+            return True
+        return False
+
+    def exec(
+        self, argv: list[str] = sys.argv[1:], **bind_kwargs: Any
+    ) -> ParseResult_t[TRet]:
         try:
             (argvd, kwargvd), xs = self._argparser.parse(argv, self.args)
-        except Exception as e:
+        except ParseError as e:
             self.print_error(e)
             exit()
 
@@ -190,14 +225,17 @@ class Cli(Generic[PArgs, TRet]):
         kwargs = {k: v for k, (_, v) in kwargvd.items()}
 
         try:
-            return self(*args, **kwargs, **bind_kwargs), xs
+            result = self(*args, **kwargs, **bind_kwargs)
+            if isinstance(result, DataCli):
+                result.next(xs)
+            return result, xs
         except Exception as e:
             self.print_error(e)
             exit()
 
     def __call__(self, *args: PArgs.args, **kwargs: PArgs.kwargs) -> TRet:
         return _call_cli(self._fn, self._args, *args, **kwargs)
-    
+
     def __instancecheck__(self, __instance: Any) -> bool:
         if isinstance(__instance, Cli):
             return __instance._fn == self._fn
@@ -207,7 +245,8 @@ class Cli(Generic[PArgs, TRet]):
 @overload
 def cli(
     *,
-    argparser: ArgParser = StandardArgParser(DEFAULT_PARSERS),
+    required: bool = ...,
+    argparser: ArgParser = ...,
 ) -> Callable[[Callable[PArgs, TRet]], Cli[PArgs, TRet]]:
     ...
 
@@ -216,7 +255,8 @@ def cli(
 def cli(
     fn: Callable[PArgs, TRet] | None,
     *,
-    argparser: ArgParser = StandardArgParser(DEFAULT_PARSERS),
+    required: bool = ...,
+    argparser: ArgParser = ...,
 ) -> Cli[PArgs, TRet]:
     ...
 
@@ -225,12 +265,17 @@ def cli(
 def cli(
     fn: Callable[PArgs, TRet] | None = None,
     *,
-    argparser: ArgParser = StandardArgParser(DEFAULT_PARSERS),
+    required: bool = True,
+    argparser: ArgParser = PythonicArgParser(),
 ) -> Cli[PArgs, TRet] | Callable[[Callable[PArgs, TRet]], Cli[PArgs, TRet]]:
     def call_for_fn(fn: Callable[PArgs, TRet]) -> Cli[PArgs, TRet]:
+        orig_fn = fn
         if inspect.isclass(fn):
             fn = dataclass(fn)
-        wrapper = Cli(fn, argparser)
+        wrapper = Cli(fn, required, argparser)
+        if inspect.isclass(orig_fn):
+            if issubclass(orig_fn, DataCli):
+                orig_fn.cli = wrapper
         for attr in ("__name__", "__doc__"):
             setattr(wrapper, attr, getattr(fn, attr))
 
