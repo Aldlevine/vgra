@@ -33,7 +33,7 @@ def _parse_signature(fn: Callable[PArgs, Any], required: bool) -> list[Arg[Any]]
         if param.annotation == KW_ONLY:
             kw_only_seen = True
         if arg is EMPTY:
-            arg = ArgDef(MISSING, [], "", False, True, None)
+            arg = ArgDef(MISSING, [], "", False, True, [])
         if not isinstance(arg, ArgDef):
             continue
         names = arg.names
@@ -73,7 +73,6 @@ def _print_signature(args: list[Arg[Any]], /) -> None:
         max_name = max(max_name, len(", ".join(arg.names)))
         max_t = max(
             max_t,
-            # len(inspect.formatannotation(arg.type)),
             len(_format_type(arg))
         )
         max_default = max(
@@ -92,7 +91,6 @@ def _print_signature(args: list[Arg[Any]], /) -> None:
         default = "" if arg.default == MISSING else repr(arg.default)
 
         name = ", ".join(arg.names).ljust(max_name + 2)
-        # t = (inspect.formatannotation(arg.type)).ljust(max_t + 2)
         t = (_format_type(arg)).ljust(max_t + 2)
         default = (
             "" if arg.default in (MISSING, Ellipsis) else str(arg.default)
@@ -141,25 +139,22 @@ class DataCli:
     @classmethod
     def print_signature(cls) -> None:
         cls.cli.print_signature()
-        ...
 
     @classmethod
     def print_help(cls) -> None:
         cls.cli.print_help()
-        # ...
 
     @classmethod
     def print_error(cls, e: Exception) -> None:
         cls.cli.print_error(e)
-        ...
 
     @classmethod
     def check_missing(cls, **kwargs: Any) -> bool:
         return cls.cli.check_missing(**kwargs)
 
     @classmethod
-    def exec(cls, argv: list[str] = sys.argv[1:]) -> ParseResult_t[Self]:  # type: ignore
-        ...
+    def exec(cls, argv: list[str] = sys.argv[1:]) -> ParseResult_t[Self]:
+        raise NotImplementedError(cls.exec)
 
     def next(self, argv: list[str]) -> None:
         ...

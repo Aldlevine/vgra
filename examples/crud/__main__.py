@@ -6,7 +6,7 @@ from typing import Any
 from vgra.args import MISSING, arg
 from vgra.cli import DataCli, cli
 
-DB_FILE = "examples/cruddy/db.json"
+DB_FILE = "examples/crud/db.json"
 
 
 def load_data() -> list[dict[str, Any]]:
@@ -170,9 +170,9 @@ class DelCommand(BaseCommand):
 
 
 @cli(required=False)
-class Root(DataCli):
+class CrudCli(DataCli):
     """
-    Cruddy Database Tool - performs basic CRUD tasks on a fantasy database
+    crud - performs basic CRUD tasks on a fantasy database
     """
 
     command: str = arg(
@@ -212,4 +212,4 @@ class Root(DataCli):
             _, argv = Cmd.exec(argv)
 
 
-Root.exec()
+CrudCli.exec()

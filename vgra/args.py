@@ -1,7 +1,7 @@
 import inspect
 from dataclasses import dataclass
 from enum import Enum
-from typing import Generic, TypeVar, cast
+from typing import Any, Generic, TypeVar, cast
 
 
 class ArgKind(Enum):
@@ -37,7 +37,7 @@ class Arg(Generic[TArg]):
     default: TArg | _MISSING_TYPE
     doc: str
     required: bool
-    choices: list[TArg] | None
+    choices: list[Any]
 
     def has_default(self) -> bool:
         return self.default is not MISSING
@@ -50,7 +50,7 @@ class ArgDef(Generic[TArg]):
     doc: str
     kw_only: bool
     required: bool
-    choices: list[TArg] | None
+    choices: list[Any]
 
 
 def arg(
@@ -60,7 +60,7 @@ def arg(
     doc: str = "",
     kw_only: bool = False,
     required: bool = True,
-    choices: list[TArg] | None = None,
+    choices: list[Any] = [],
 ) -> TArg:
     return cast(
         TArg,
