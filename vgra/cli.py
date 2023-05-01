@@ -271,6 +271,10 @@ def cli(
         if inspect.isclass(orig_fn):
             if issubclass(orig_fn, DataCli):
                 orig_fn.cli = wrapper
+        # make sure we copy over all our extra stuff!
+        for k in dir(fn):
+            if k not in dir(Cli):
+                setattr(wrapper, k, getattr(fn, k))
         for attr in ("__name__", "__doc__"):
             setattr(wrapper, attr, getattr(fn, attr))
 
