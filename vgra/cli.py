@@ -32,8 +32,8 @@ def _parse_signature(fn: Callable[PArgs, Any], required: bool) -> list[Arg[Any]]
         arg = param.default
         if param.annotation == KW_ONLY:
             kw_only_seen = True
-        if arg is EMPTY:
-            arg = ArgDef(MISSING, [], "", False, True, [])
+        # if arg is EMPTY:
+        #     arg = ArgDef(MISSING, [], "", False, True, [])
         if not isinstance(arg, ArgDef):
             continue
         names = arg.names
@@ -153,7 +153,7 @@ class DataCli:
         return cls.cli.check_missing(**kwargs)
 
     @classmethod
-    def exec(cls, argv: list[str] = sys.argv[1:]) -> ParseResult_t[Self]:
+    def exec(cls, argv: list[str] = sys.argv[1:], **bind_kwargs: Any) -> ParseResult_t[Self]:
         raise NotImplementedError(cls.exec)
 
     def next(self, argv: list[str]) -> None:
